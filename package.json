@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server/http.js",
+    "start": "node server/dev-server.js",
     "dev": "node --watch server/dev-server.js"
   },
   "engines": { "node": ">=20" },
