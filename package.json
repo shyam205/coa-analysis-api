@@ -1,0 +1,25 @@
+{
+  "name": "coa-analysis-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:theme": "vite build --mode theme",
+    "watch:theme": "vite build --watch --mode theme",
+    "api": "node --env-file-if-exists=.env --watch-path=server --watch-path=shared server/dev-server.js",
+    "dev:shopify": "node scripts/dev.js",
+    "push": "vite build --mode theme && cd ../shopGate && shopify theme push --nodelete --ignore AGENTS.md",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "^3.3.0",
+    "preact": "^11.1.1",
+    "unpdf": "^2.1.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "vite": "^8.3.6"
+  }
+}
