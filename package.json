@@ -9,7 +9,7 @@
   },
   "engines": { "node": ">=20" },
   "dependencies": {
-    "@anthropic-ai/sdk": "x.x.x",
-    "cheerio": "x.x.x"
+    "@google/genai": "^3.3.0",
+    "unpdf": "^2.1.0"
   }
 }
