@@ -14,6 +14,22 @@ const MAX_PDF_BYTES = 15 * 1024 * 1024
 const FORBIDDEN_PATH = /^\/(cart|checkout|checkouts|account|search|login|admin|orders)(\/|$)/i
 const COA_HINT = /(coa|lab|test|certificate|analysis|batch|lot|result|report)/i
 
+// Third-party lab-report widgets. They load their COA panel with JavaScript in the shopper's browser,
+// so the server only sees an empty placeholder tag; we detect the placeholder itself.
+const COA_WIDGETS = [
+  { provider: 'LabTested', test: /<labtested-widget\b|\/\/app\.labtested\.co\//i },
+]
+// Any other custom element or script whose name says COA / lab report / lab results.
+// (custom element names must contain a hyphen; the keyword must be a whole name segment, so "coach-marks" doesn't match)
+const GENERIC_WIDGET = /<(?=[a-z0-9-]*-)(?:[a-z0-9]+-)*(?:coa|lab-?tests?|lab-?tested|lab-?reports?|lab-?results?)(?:-[a-z0-9]+)*[\s>/]|<script\b[^>]*\bsrc\s*=\s*["'][^"']*(?:[/._-]coa[/._-]|lab-?tested|lab-?reports?|lab-?results?)[^"']*["']/i
+
+/** Name of the embedded lab-report widget on this page, or null. */
+export function detectCoaWidget(html) {
+  const known = COA_WIDGETS.find((w) => w.test.test(html))
+  if (known) return known.provider
+  return GENERIC_WIDGET.test(html) ? 'an embedded lab-report widget' : null
+}
+
 const urlSchema = { type: 'object', properties: { url: { type: 'string', description: 'Absolute URL' } }, required: ['url'], additionalProperties: false }
 const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] }
 
@@ -190,6 +206,7 @@ export function createToolbox({ origin, fetcher, robots, maxFetches, maxPdfs }) 
     pdfKeys: new Set(),
     linkedKeys: new Set(), // every link seen on a fetched page (rule 2 exception + coa_link check)
     pageText: new Map(), // urlKey -> tool output text, handed to the extractor
+    coaWidgets: new Map(), // urlKey -> { url, title, provider } for pages with an embedded lab-report widget
   }
   const linkedRaw = new Set()
   const isStore = (u) => u.hostname.replace(/^www\./, '') === baseHost
@@ -277,6 +294,9 @@ export function createToolbox({ origin, fetcher, robots, maxFetches, maxPdfs }) 
       } catch {}
     })
 
+    const widget = detectCoaWidget(html)
+    if (widget) state.coaWidgets.set(urlKey(finalUrl), { url: finalUrl, title, provider: widget })
+
     const dedupe = (links) => [...new Map(links.map((l) => [l.url, l])).values()]
     markFetched(check.url.href, finalUrl)
     state.fetched.push({ url: finalUrl, ok: true, title, kind: 'page' })
@@ -285,6 +305,9 @@ export function createToolbox({ origin, fetcher, robots, maxFetches, maxPdfs }) 
       `TITLE: ${title}`,
       budgetLine(),
       mainText.length < 200 ? 'NOTE: very little visible text. The page may be JavaScript-rendered or empty.' : null,
+      widget
+        ? `\n== EMBEDDED LAB-REPORT WIDGET ==\nThis page embeds ${widget === 'LabTested' ? 'the LabTested lab-report widget' : widget}. It loads the COA / lab test results in the shopper's browser, so the results are NOT in the text below, but shoppers do see them on this page. Count it as a COA shown on this page: for a product page set coa_link to this page's URL and testing_info to true.`
+        : null,
       '',
       '== MAIN CONTENT (header, nav and footer removed) ==',
       cap(mainText, MAX_MAIN_CHARS),

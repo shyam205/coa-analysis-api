@@ -95,6 +95,7 @@ const EVALUATOR = `You are the TrueBatch COA Evaluator (Agent 3). You write the 
 3. The assessment covers COA presentation and accessibility only. Do not judge product safety, lab quality or regulatory compliance, and do not give legal advice. Present category testing points as considerations, not requirements.
 4. evidence_url must be copied exactly from CHECKED URLS when a fix relates to something on the site; otherwise null.
 5. Write for a busy store owner: plain English, short sentences, no jargon, no hype.
+6. EVIDENCE.coa_widgets lists pages with an embedded lab-report panel (e.g. LabTested) that shows COA results to shoppers in their browser. Treat those pages as showing their COA; never tell the owner to publish COAs that this panel already shows.
 
 ## Output
 - summary: 1-2 sentences on how easily shoppers can find and use this store's lab reports.

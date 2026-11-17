@@ -15,6 +15,7 @@ export function webScores(ev) {
   const docs = arr(ev.coa_documents)
   const methods = new Set(arr(ev.access_methods))
   const realDocs = docs.filter((d) => d.has_results)
+  const widgets = arr(ev.coa_widgets) // embedded lab-report panels count as published reports with results
   const withCoa = products.filter((p) => p.coa_link)
   const withInfo = products.filter((p) => p.testing_info || p.coa_link)
   const withBatchDocs = docs.filter((d) => d.batch)
@@ -22,9 +23,9 @@ export function webScores(ev) {
   const hasTestingPage = arr(ev.testing_pages).length > 0 || methods.has('separate_page')
   const coverage = pct(withCoa.length, products.length)
 
-  const avail = clamp((realDocs.length ? 40 : docs.length ? 25 : found(ev.email_request) ? 10 : 0) + coverage * 0.45 + (hasTestingPage ? 15 : 0))
+  const avail = clamp((realDocs.length || widgets.length ? 40 : docs.length ? 25 : found(ev.email_request) ? 10 : 0) + coverage * 0.45 + (hasTestingPage ? 15 : 0))
   const access = clamp(
-    (hasTestingPage ? 25 : 0) + (methods.has('product_page') || withCoa.length ? 20 : 0) + coverage * 0.25 + (found(ev.batch_lookup) ? 20 : 0) + (docs.length ? 10 : found(ev.email_request) ? 5 : 0),
+    (hasTestingPage ? 25 : 0) + (methods.has('product_page') || withCoa.length ? 20 : 0) + coverage * 0.25 + (found(ev.batch_lookup) ? 20 : 0) + (docs.length || widgets.length ? 10 : found(ev.email_request) ? 5 : 0),
   )
   const trace = clamp(pct(withBatchDocs.length, docs.length) * 0.5 + pct(withBatchPages.length, products.length) * 0.15 + (found(ev.batch_lookup) ? 25 : 0) + (found(ev.matching_instructions) ? 10 : 0))
   const present = clamp(pct(withInfo.length, products.length) * 0.6 + coverage * 0.25 + (found(ev.homepage_testing_claim) ? 15 : 0))

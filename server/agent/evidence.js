@@ -2,6 +2,7 @@
 //  1. pruneEvidence: drops every finding whose URL was not actually fetched during the scan.
 //  2. buildFindings: turns the evidence into the list of findings the widget shows.
 import { urlKey } from './tools.js'
+import { PRODUCT_URL } from '../fetcher.js'
 
 const arr = (v) => (Array.isArray(v) ? v : [])
 const SIGNALS = ['batch_lookup', 'matching_instructions', 'email_request', 'qr_mention', 'homepage_testing_claim']
@@ -12,7 +13,7 @@ const strOrNull = (v, max = 120) => (typeof v === 'string' && v.trim() ? v.trim(
 
 /**
  * @param {object} raw evidence from Agent 2
- * @param {{ fetchedKeys: Set<string>, linkedKeys: Set<string> }} state toolbox state
+ * @param {{ fetchedKeys: Set<string>, linkedKeys: Set<string>, coaWidgets?: Map<string, {url:string,title:string,provider:string}> }} state toolbox state
  */
 export function pruneEvidence(raw, state) {
   const ev = raw && typeof raw === 'object' ? raw : {}
@@ -58,7 +59,33 @@ export function pruneEvidence(raw, state) {
       out[key] = { found: false, url: null }
     }
   }
+  addCoaWidgets(out, [...(state.coaWidgets?.values() || [])])
   return { evidence: out, dropped }
+}
+
+/**
+ * Pages with an embedded lab-report widget (detected in the HTML by the toolbox, not by the LLM)
+ * show their COA in the shopper's browser. Record them in code so the result never depends on the
+ * extractor noticing: a product page with a widget has its COA on the page.
+ */
+function addCoaWidgets(out, widgets) {
+  out.coa_widgets = widgets.map((w) => ({ url: w.url, provider: w.provider }))
+  for (const w of widgets) {
+    const key = urlKey(w.url)
+    const product = out.products_checked.find((p) => urlKey(p.url) === key)
+    if (product) {
+      product.coa_link ||= w.url
+      product.testing_info = true
+      product.coa_widget = w.provider
+    } else if (PRODUCT_URL.test(w.url)) {
+      out.products_checked.push({ url: w.url, title: str(w.title, 200), coa_link: w.url, testing_info: true, batch_on_page: false, coa_widget: w.provider })
+    } else if (!out.testing_pages.some((t) => urlKey(t.url) === key)) {
+      out.testing_pages.push({ url: w.url, summary: `Lab results shown in ${w.provider === 'LabTested' ? 'a LabTested' : 'an embedded'} lab-report panel.` })
+    }
+  }
+  if (out.products_checked.some((p) => p.coa_widget) && !out.access_methods.includes('product_page')) {
+    out.access_methods = [...out.access_methods.filter((m) => m !== 'none'), 'product_page']
+  }
 }
 
 const pathOf = (u) => {
@@ -84,6 +111,9 @@ export function buildFindings(ev, categoryName) {
   const withBatch = docs.filter((d) => d.batch)
   const scanned = docs.filter((d) => d.scanned_image)
   const testing = ev.testing_pages
+  const widgets = arr(ev.coa_widgets)
+  const widgetProducts = products.filter((p) => p.coa_widget)
+  const panel = widgets.length ? `${widgets[0].provider === 'LabTested' ? 'LabTested' : 'embedded'} lab-report panel` : ''
   const f = []
   const add = (id, label, status, text, urls = []) => f.push({ id, label, status, text, urls: [...new Set(urls.filter(Boolean))] })
   const s = (n) => (n === 1 ? '' : 's')
@@ -91,7 +121,10 @@ export function buildFindings(ev, categoryName) {
   add('category', 'Product category', ev.category_guess === 'other' ? 'partial' : 'found',
     ev.category_guess === 'other' ? 'Category not confidently identified; assessed generally.' : `Identified category: ${categoryName}${products.length ? ` (${products.length} product page${s(products.length)} reviewed)` : ''}.`)
 
-  if (!docs.length) add('availability', 'COA availability', 'missing', ev.email_request.found ? 'No reports published; they are available on request only.' : 'No lab reports found on the pages we reviewed.', [ev.email_request.url])
+  if (widgets.length) {
+    const where = products.length ? `on ${widgetProducts.length} of ${products.length} product page${s(products.length)} reviewed` : 'on the store'
+    add('availability', 'COA availability', 'found', `COA found: lab results shown ${where} (${panel})${docs.length ? `, plus ${docs.length} report file${s(docs.length)}` : ''}.`, [...widgets.map((w) => w.url), ...docs.map((d) => d.url)])
+  } else if (!docs.length) add('availability', 'COA availability', 'missing', ev.email_request.found ? 'No reports published; they are available on request only.' : 'No lab reports found on the pages we reviewed.', [ev.email_request.url])
   else if (products.length && withCoa.length >= products.length * 0.75 && realDocs.length) add('availability', 'COA availability', 'found', `Reports found for ${withCoa.length} of ${products.length} products reviewed.`, docs.map((d) => d.url))
   else add('availability', 'COA availability', 'partial', `Some COAs publicly available: ${docs.length} report${s(docs.length)} found${products.length ? `, linked from ${withCoa.length} of ${products.length} products reviewed` : ''}.`, docs.map((d) => d.url))
 
@@ -107,9 +140,11 @@ export function buildFindings(ev, categoryName) {
 
   if (ev.batch_lookup.found) add('batch', 'Batch or lot identification', 'found', 'A lot lookup lets customers match their pack to its report.', [ev.batch_lookup.url])
   else if (withBatch.length) add('batch', 'Batch or lot identification', withBatch.length === docs.length && ev.matching_instructions.found ? 'found' : 'partial', `Lot numbers appear on ${withBatch.length} of ${docs.length} reports${ev.matching_instructions.found ? ', with instructions for matching a pack' : ', but there is no way to match a pack to its report'}.`, [...withBatch.map((d) => d.url), ev.matching_instructions.url])
+  else if (widgets.length) add('batch', 'Batch or lot identification', 'partial', `Lot details may be shown inside the ${panel}, but we couldn’t read them from the page.`, widgets.map((w) => w.url))
   else add('batch', 'Batch or lot identification', 'missing', docs.length ? 'Reports are not linked to individual batches or lots.' : 'No lot reference found.')
 
-  if (!docs.length) add('format', 'COA presentation format', 'partial', 'No public reports to assess.')
+  if (widgets.length && !scanned.length) add('format', 'COA presentation format', 'found', `Results are shown in an interactive ${panel} on the page, readable on a phone.`, widgets.map((w) => w.url))
+  else if (!docs.length) add('format', 'COA presentation format', 'partial', 'No public reports to assess.')
   else if (scanned.length) add('format', 'COA presentation format', 'partial', `${scanned.length} report${scanned.length === 1 ? ' is a scanned image' : 's are scanned images'}, hard to read on a phone.`, scanned.map((d) => d.url))
   else add('format', 'COA presentation format', testing.length ? 'found' : 'partial', testing.length ? 'Readable reports with a page that brings them together.' : 'Reports are PDF downloads with no summary.', docs.map((d) => d.url))
 
